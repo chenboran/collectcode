@@ -1,0 +1,3 @@
+chardet
+reportlab
+tkinterdnd2
