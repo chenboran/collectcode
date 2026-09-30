@@ -155,11 +155,10 @@ def process_entries(entries, exclude_patterns, max_file_size, truncate_size, log
         except OSError:
             continue
 
-        display_path = f"[{root_label}] {rel_path}"
-        log_fn(f"处理: {display_path}")
+        log_fn(f"处理: {rel_path}")
 
         combined_text.append(f"\n{'=' * 50}\n")
-        combined_text.append(f"File Path: {display_path}\n")
+        combined_text.append(f"File Path: {rel_path}\n")
         combined_text.append(f"Full Path: {full_path}\n")
         combined_text.append(f"File Size: {file_size} bytes\n")
 
