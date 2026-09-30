@@ -26,10 +26,10 @@ jobs:
 
       - name: 打包为单文件 exe（含 tkinterdnd2 资源文件）
         run: |
-          pyinstaller -F -w --name "文件内容合集工具" --collect-all tkinterdnd2 files_report_gui.py
+          pyinstaller -F -w --name "collectcode" --collect-all tkinterdnd2 files_report_gui.py
 
       - name: 上传打包结果
         uses: actions/upload-artifact@v4
         with:
-          name: 文件内容合集工具-exe
-          path: dist/文件内容合集工具.exe
+          name: collectcode
+          path: dist/collectcode.exe

@@ -379,8 +379,14 @@ class App(BaseTk):
         bottom.columnconfigure(0, weight=1)
         main.rowconfigure(2, weight=1)
 
-        self.gen_btn = ttk.Button(bottom, text="生成合集", command=self.start_generate)
-        self.gen_btn.pack(anchor="w", pady=(0, 6))
+        gen_btn_row = ttk.Frame(bottom)
+        gen_btn_row.pack(anchor="w", pady=(0, 6))
+        self.gen_btn = ttk.Button(gen_btn_row, text="生成合集", command=self.start_generate)
+        self.gen_btn.pack(side=tk.LEFT, padx=(0, 6))
+        self.gen_copy_btn = ttk.Button(
+            gen_btn_row, text="生成合集并复制到剪贴板", command=self.start_generate_and_copy
+        )
+        self.gen_copy_btn.pack(side=tk.LEFT)
 
         self.log_box = scrolledtext.ScrolledText(bottom, height=14, state="disabled")
         self.log_box.pack(fill=tk.BOTH, expand=True)
@@ -480,14 +486,31 @@ class App(BaseTk):
 
     # ---------- 生成合集 ----------
     def start_generate(self):
+        self._start_generate(copy_to_clipboard=False)
+
+    def start_generate_and_copy(self):
+        self._start_generate(copy_to_clipboard=True)
+
+    def _start_generate(self, copy_to_clipboard):
         if not self.entries:
             messagebox.showwarning("提示", "请先添加至少一个文件或文件夹")
             return
         self._save()
-        self.gen_btn.configure(state="disabled", text="生成中...")
-        threading.Thread(target=self._generate_worker, daemon=True).start()
+        self.gen_btn.configure(state="disabled")
+        self.gen_copy_btn.configure(state="disabled")
+        (self.gen_copy_btn if copy_to_clipboard else self.gen_btn).configure(text="生成中...")
+        threading.Thread(
+            target=self._generate_worker, args=(copy_to_clipboard,), daemon=True
+        ).start()
 
-    def _generate_worker(self):
+    def _copy_to_clipboard(self, text):
+        # 剪贴板操作必须在主线程执行
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.update()  # 确保内容真正写入系统剪贴板
+        self._log("已复制到剪贴板")
+
+    def _generate_worker(self, copy_to_clipboard):
         try:
             app_dir = get_app_dir()
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -509,15 +532,22 @@ class App(BaseTk):
 
             text_to_pdf(txt_path, pdf_path, log_fn=self._log)
 
+            if copy_to_clipboard:
+                self.after(0, lambda: self._copy_to_clipboard(combined_text))
+
             self._log("全部完成！")
-            self.after(0, lambda: messagebox.showinfo(
-                "完成", f"合集已生成：\n{txt_path}\n{pdf_path}"
-            ))
+            msg = f"合集已生成：\n{txt_path}\n{pdf_path}"
+            if copy_to_clipboard:
+                msg += "\n\n内容已复制到剪贴板"
+            self.after(0, lambda: messagebox.showinfo("完成", msg))
         except Exception as e:
             self._log(f"发生错误: {e}")
             self.after(0, lambda: messagebox.showerror("错误", str(e)))
         finally:
-            self.after(0, lambda: self.gen_btn.configure(state="normal", text="生成合集"))
+            def reset_buttons():
+                self.gen_btn.configure(state="normal", text="生成合集")
+                self.gen_copy_btn.configure(state="normal", text="生成合集并复制到剪贴板")
+            self.after(0, reset_buttons)
 
 
 def main():
