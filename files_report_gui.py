@@ -7,7 +7,10 @@
 #   - 自定义"限制条目"（排除规则），支持通配符，比如 *.log、node_modules、.git
 #   - 所有条目（文件/文件夹/排除规则）自动保存到 exe 同目录下的 config.json，下次打开自动加载
 #   - 点击"生成合集"后，遍历条目中所有子目录，把命中的文件内容汇总，
-#     在 exe 所在目录生成 combined_files_report.txt 和 .pdf
+#     在 exe 所在目录覆盖生成固定的 combined_files_report.txt 和 combined_files_report.pdf
+#   - 支持命令行参数无界面启动：
+#       collectcode.exe --gen   (或 -g) : 静默生成合集后退出
+#       collectcode.exe --copy  (或 -c) : 静默生成合集并复制到剪贴板后退出
 
 import os
 import sys
@@ -15,10 +18,9 @@ import json
 import fnmatch
 import threading
 import queue
-from datetime import datetime
 
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import chardet
 from reportlab.pdfgen import canvas
@@ -38,6 +40,9 @@ except ImportError:
 DEFAULT_MAX_FILE_SIZE = 1 * 1024 * 1024   # 1MB，超过此大小的文件会被截断
 DEFAULT_TRUNCATE_SIZE = 50 * 1024         # 50KB，截取前面这么多字符
 DEFAULT_EXCLUDES = ["__pycache__", ".git", ".vs", "node_modules", "*.exe", "*.dll"]
+
+REPORT_TXT_NAME = "combined_files_report.txt"
+REPORT_PDF_NAME = "combined_files_report.pdf"
 # ============================================
 
 
@@ -84,7 +89,7 @@ def save_config(entries, excludes, max_file_size, truncate_size):
         print(f"保存配置失败: {e}")
 
 
-# ================= 文件处理相关（与原逻辑一致，只是改成支持多条目+排除规则）=================
+# ================= 文件处理相关 =================
 
 def is_excluded(name, rel_path, patterns):
     for p in patterns:
@@ -275,12 +280,82 @@ def text_to_pdf(input_file, output_file, font_size=10, line_spacing=1.2, log_fn=
                     y -= line_height
 
         c.save()
-        log_fn(f"PDF生成成功: {output_file}")
+        log_fn(f"PDF生成成功(已覆盖): {output_file}")
         return True
 
     except Exception as e:
         log_fn(f"转换过程中出现错误: {str(e)}")
         return False
+
+
+def generate_reports(entries, excludes, max_file_size, truncate_size, log_fn=print):
+    """核心生成流程：直接覆盖固定名称的 txt 和 pdf 临时文件"""
+    app_dir = get_app_dir()
+    txt_path = os.path.join(app_dir, REPORT_TXT_NAME)
+    pdf_path = os.path.join(app_dir, REPORT_PDF_NAME)
+
+    log_fn(f"开始处理，共 {len(entries)} 个条目...")
+    combined_text, file_count = process_entries(
+        entries,
+        excludes,
+        max_file_size,
+        truncate_size,
+        log_fn=log_fn,
+    )
+
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(combined_text)
+    log_fn(f"文本合集已生成(已覆盖): {txt_path}（共 {file_count} 个文件）")
+
+    text_to_pdf(txt_path, pdf_path, log_fn=log_fn)
+    return combined_text, txt_path, pdf_path, file_count
+
+
+# ================= 命令行无界面模式 =================
+
+def copy_to_clipboard_headless(text):
+    """不显示主界面的情况下将文本写入系统剪贴板"""
+    root = tk.Tk()
+    root.withdraw()
+    root.clipboard_clear()
+    root.clipboard_append(text)
+    root.update()
+    # 稍微延迟销毁，确保 Windows 剪贴板完成数据接管
+    root.after(150, root.destroy)
+    root.mainloop()
+
+
+def run_cli(args):
+    """处理命令行参数启动，执行完毕后直接退出，不启动 GUI"""
+    arg_set = {a.lower() for a in args}
+
+    if "--copy" in arg_set or "-c" in arg_set:
+        copy_to_clipboard = True
+    elif "--gen" in arg_set or "-g" in arg_set:
+        copy_to_clipboard = False
+    else:
+        print("未知参数！支持的参数：")
+        print("  --gen  或 -g : 生成合集文件（直接覆盖）")
+        print("  --copy 或 -c : 生成合集文件并复制到剪贴板")
+        return
+
+    cfg = load_config()
+    entries = cfg.get("entries", [])
+    excludes = cfg.get("excludes", DEFAULT_EXCLUDES)
+    max_file_size = cfg.get("max_file_size", DEFAULT_MAX_FILE_SIZE)
+    truncate_size = cfg.get("truncate_size", DEFAULT_TRUNCATE_SIZE)
+
+    if not entries:
+        print("未找到需要处理的条目，请先无参数启动程序添加文件/文件夹。")
+        return
+
+    combined_text, _, _, _ = generate_reports(
+        entries, excludes, max_file_size, truncate_size, log_fn=print
+    )
+
+    if copy_to_clipboard:
+        copy_to_clipboard_headless(combined_text)
+        print("内容已复制到剪贴板")
 
 
 # ================= 图形界面 =================
@@ -367,7 +442,7 @@ class App(BaseTk):
         # --- 限制参数 ---
         opts_frame = ttk.LabelFrame(main, text="单文件大小限制")
         opts_frame.grid(row=1, column=1, sticky="new", padx=(5, 0), pady=(8, 0))
-        ttk.Label(opts_frame, text="超过多少 KB 视为大文件:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(opts_frame, text="超过多少字节视为大文件:").grid(row=0, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(opts_frame, textvariable=self.max_file_size, width=12).grid(row=0, column=1, padx=4, pady=4)
         ttk.Label(opts_frame, text="大文件截取前多少字节:").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         ttk.Entry(opts_frame, textvariable=self.truncate_size, width=12).grid(row=1, column=1, padx=4, pady=4)
@@ -401,14 +476,12 @@ class App(BaseTk):
         self._save()
 
     def add_folder(self):
-        # askdirectory 一次只能选一个，用户可以多次点击来加多个不同文件夹
         path = filedialog.askdirectory(title="选择一个文件夹（可重复点击本按钮添加多个）")
         if path:
             self._add_entry(path)
             self._save()
 
     def on_drop(self, event):
-        # tkinterdnd2 返回的字符串需要用 splitlist 解析（路径可能包含空格）
         paths = self.tk.splitlist(event.data)
         for p in paths:
             self._add_entry(p)
@@ -504,21 +577,14 @@ class App(BaseTk):
         ).start()
 
     def _copy_to_clipboard(self, text):
-        # 剪贴板操作必须在主线程执行
         self.clipboard_clear()
         self.clipboard_append(text)
-        self.update()  # 确保内容真正写入系统剪贴板
+        self.update()
         self._log("已复制到剪贴板")
 
     def _generate_worker(self, copy_to_clipboard):
         try:
-            app_dir = get_app_dir()
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            txt_path = os.path.join(app_dir, f"combined_files_report_{timestamp}.txt")
-            pdf_path = os.path.join(app_dir, f"combined_files_report_{timestamp}.pdf")
-
-            self._log(f"开始处理，共 {len(self.entries)} 个条目...")
-            combined_text, file_count = process_entries(
+            combined_text, txt_path, pdf_path, _ = generate_reports(
                 self.entries,
                 self.excludes,
                 self.max_file_size.get(),
@@ -526,17 +592,11 @@ class App(BaseTk):
                 log_fn=self._log,
             )
 
-            with open(txt_path, "w", encoding="utf-8") as f:
-                f.write(combined_text)
-            self._log(f"文本合集已生成: {txt_path}（共 {file_count} 个文件）")
-
-            text_to_pdf(txt_path, pdf_path, log_fn=self._log)
-
             if copy_to_clipboard:
                 self.after(0, lambda: self._copy_to_clipboard(combined_text))
 
             self._log("全部完成！")
-            msg = f"合集已生成：\n{txt_path}\n{pdf_path}"
+            msg = f"合集已生成（已覆盖旧文件）：\n{txt_path}\n{pdf_path}"
             if copy_to_clipboard:
                 msg += "\n\n内容已复制到剪贴板"
             self.after(0, lambda: messagebox.showinfo("完成", msg))
@@ -551,6 +611,11 @@ class App(BaseTk):
 
 
 def main():
+    # 如果带有命令行参数，则不启动 UI，直接执行对应动作并退出
+    if len(sys.argv) > 1:
+        run_cli(sys.argv[1:])
+        return
+
     app = App()
     app.mainloop()
 
