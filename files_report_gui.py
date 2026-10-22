@@ -9,8 +9,9 @@
 #   - 点击"生成合集"后，遍历条目中所有子目录，把命中的文件内容汇总，
 #     在 exe 所在目录覆盖生成固定的 combined_files_report.txt 和 combined_files_report.pdf
 #   - 支持命令行参数无界面启动：
-#       collectcode.exe --gen   (或 -g) : 静默生成合集后退出
-#       collectcode.exe --copy  (或 -c) : 静默生成合集并复制到剪贴板后退出
+#       collectcode.exe --gen      (或 -g) : 静默生成 txt + pdf 后退出
+#       collectcode.exe --copy     (或 -c) : 静默生成 txt + pdf 并复制到剪贴板后退出
+#       collectcode.exe --txt-copy (或 -t) : 静默仅生成 txt（不生成 pdf）并复制到剪贴板后退出
 
 import os
 import sys
@@ -288,11 +289,11 @@ def text_to_pdf(input_file, output_file, font_size=10, line_spacing=1.2, log_fn=
         return False
 
 
-def generate_reports(entries, excludes, max_file_size, truncate_size, log_fn=print):
-    """核心生成流程：直接覆盖固定名称的 txt 和 pdf 临时文件"""
+def generate_reports(entries, excludes, max_file_size, truncate_size, make_pdf=True, log_fn=print):
+    """核心生成流程：直接覆盖固定名称的 txt（及可选的 pdf）临时文件"""
     app_dir = get_app_dir()
     txt_path = os.path.join(app_dir, REPORT_TXT_NAME)
-    pdf_path = os.path.join(app_dir, REPORT_PDF_NAME)
+    pdf_path = os.path.join(app_dir, REPORT_PDF_NAME) if make_pdf else None
 
     log_fn(f"开始处理，共 {len(entries)} 个条目...")
     combined_text, file_count = process_entries(
@@ -307,7 +308,11 @@ def generate_reports(entries, excludes, max_file_size, truncate_size, log_fn=pri
         f.write(combined_text)
     log_fn(f"文本合集已生成(已覆盖): {txt_path}（共 {file_count} 个文件）")
 
-    text_to_pdf(txt_path, pdf_path, log_fn=log_fn)
+    if make_pdf:
+        text_to_pdf(txt_path, pdf_path, log_fn=log_fn)
+    else:
+        log_fn("已跳过 PDF 生成")
+
     return combined_text, txt_path, pdf_path, file_count
 
 
@@ -329,14 +334,20 @@ def run_cli(args):
     """处理命令行参数启动，执行完毕后直接退出，不启动 GUI"""
     arg_set = {a.lower() for a in args}
 
-    if "--copy" in arg_set or "-c" in arg_set:
+    if "--txt-copy" in arg_set or "-t" in arg_set:
         copy_to_clipboard = True
+        make_pdf = False
+    elif "--copy" in arg_set or "-c" in arg_set:
+        copy_to_clipboard = True
+        make_pdf = True
     elif "--gen" in arg_set or "-g" in arg_set:
         copy_to_clipboard = False
+        make_pdf = True
     else:
         print("未知参数！支持的参数：")
-        print("  --gen  或 -g : 生成合集文件（直接覆盖）")
-        print("  --copy 或 -c : 生成合集文件并复制到剪贴板")
+        print("  --gen      或 -g : 生成 txt + pdf 合集文件（直接覆盖）")
+        print("  --copy     或 -c : 生成 txt + pdf 合集文件并复制到剪贴板")
+        print("  --txt-copy 或 -t : 仅生成 txt 合集文件（不生成 pdf）并复制到剪贴板")
         return
 
     cfg = load_config()
@@ -350,7 +361,12 @@ def run_cli(args):
         return
 
     combined_text, _, _, _ = generate_reports(
-        entries, excludes, max_file_size, truncate_size, log_fn=print
+        entries,
+        excludes,
+        max_file_size,
+        truncate_size,
+        make_pdf=make_pdf,
+        log_fn=print,
     )
 
     if copy_to_clipboard:
@@ -589,6 +605,7 @@ class App(BaseTk):
                 self.excludes,
                 self.max_file_size.get(),
                 self.truncate_size.get(),
+                make_pdf=True,
                 log_fn=self._log,
             )
 
@@ -596,7 +613,9 @@ class App(BaseTk):
                 self.after(0, lambda: self._copy_to_clipboard(combined_text))
 
             self._log("全部完成！")
-            msg = f"合集已生成（已覆盖旧文件）：\n{txt_path}\n{pdf_path}"
+            msg = f"合集已生成（已覆盖旧文件）：\n{txt_path}"
+            if pdf_path:
+                msg += f"\n{pdf_path}"
             if copy_to_clipboard:
                 msg += "\n\n内容已复制到剪贴板"
             self.after(0, lambda: messagebox.showinfo("完成", msg))
