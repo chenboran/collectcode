@@ -18,7 +18,6 @@
 #       --txt-copy      (或 -t)          : 静默仅生成 txt 并复制到剪贴板后退出
 #       --mem-copy      (或 -m)          : 不生成任何磁盘文件，直接合成文本复制到剪贴板后退出
 #       --audit-clip    (或 -a)          : 读取当前剪贴板并弹出 ai-execute-code 补丁审核窗口
-
 import os
 import re
 import sys
