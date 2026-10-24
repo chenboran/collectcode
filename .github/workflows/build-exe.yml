@@ -1,15 +1,16 @@
-name: 打包为 Windows exe
+name: 打包通用启动器 Windows exe
 
 on:
   workflow_dispatch:   # 手动点击触发
   push:
     branches: [ main ]
     paths:
-      - 'files_report_gui.py'
+      - 'launcher.py'
+      - 'requirements.txt'
 
 jobs:
   build:
-    runs-on: windows-latest   # 使用 GitHub 提供的云端 Windows 环境
+    runs-on: windows-latest
 
     steps:
       - name: 拉取代码
@@ -24,12 +25,16 @@ jobs:
         run: |
           pip install -r requirements.txt pyinstaller
 
-      - name: 打包为单文件 exe（含 tkinterdnd2 资源文件）
+      - name: 打包通用启动器底座 collectcode.exe
         run: |
-          pyinstaller -F -w --name "collectcode" --collect-all tkinterdnd2 --hidden-import uuid --hidden-import runpy files_report_gui.py
+          pyinstaller -F -w --name "collectcode" --collect-all tkinterdnd2 --collect-all reportlab --collect-all chardet launcher.py
 
-      - name: 上传打包结果
+      - name: 上传打包结果（含外部可随时修改的 py 脚本）
         uses: actions/upload-artifact@v4
         with:
-          name: collectcode
-          path: dist/collectcode.exe
+          name: collectcode-bundle
+          path: |
+            dist/collectcode.exe
+            files_report_gui.py
+            http_ui.py
+            llm_client.py
